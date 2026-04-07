@@ -20,14 +20,20 @@ logger = logging.getLogger(__name__)
 class PeakDetector:
     """고점 판독 백테스터"""
     
-    def __init__(self, df: pd.DataFrame, trend_type: str = 'bull'):
+    def __init__(self, df: pd.DataFrame, trend_type: str = 'bull',
+                 trend_labels: pd.Series = None):
         """
         Args:
             df: 지표가 계산된 데이터프레임
-            trend_type: 'bull', 'sideways', 'bear'
+            trend_type: 'bull', 'sideways', 'bear' (현재 시점 추세)
+            trend_labels: 날짜별 추세 레이블 시리즈 (백테스트에서 시점별 추세 반영)
         """
         self.df = df.copy()
         self.trend_type = trend_type
+        self.trend_labels = trend_labels  # 날짜별 추세 ('bull'/'sideways'/'bear')
+        self._trend_label_map = None
+        if trend_labels is not None:
+            self._trend_label_map = trend_labels.to_dict()
         self.strategies = []
         
         # 파라미터 설정
@@ -625,6 +631,26 @@ class PeakDetector:
         if win_rate < BACKTEST_PARAMS['min_win_rate']:
             return
         
+        # 추세별 승률 계산 (날짜별 추세 레이블이 있는 경우)
+        trend_win_rates = {}
+        if self._trend_label_map is not None:
+            # 통과한 전략에 대해서만 추세 태깅 수행
+            trend_counts = {}  # {trend: [total, wins]}
+            for r in valid_signals:
+                t = self._trend_label_map.get(r['signal_date'], self.trend_type)
+                r['trend_at_signal'] = t
+                if t not in trend_counts:
+                    trend_counts[t] = [0, 0]
+                trend_counts[t][0] += 1
+                if r['return_20d'] < 0:
+                    trend_counts[t][1] += 1
+            for t, (cnt, wins_t) in trend_counts.items():
+                if cnt >= 2:
+                    trend_win_rates[t] = {
+                        'win_rate': (wins_t / cnt) * 100,
+                        'count': cnt
+                    }
+        
         # 전략 저장
         self.strategies.append({
             'name': name,
@@ -632,9 +658,11 @@ class PeakDetector:
             'disparity': disparity,
             'ma_period': ma_period,
             'signal_count': len(signal_indices),
+            'valid_signal_count': len(valid_signals),
             'win_rate': win_rate,
             'forward_returns': forward_returns,
-            'trend_type': self.trend_type
+            'trend_type': self.trend_type,
+            'trend_win_rates': trend_win_rates
         })
     
     def get_top_strategies(self, n: int = 20) -> List[Dict]:

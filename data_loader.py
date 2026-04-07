@@ -45,8 +45,8 @@ class DataLoader:
         try:
             conn = sqlite3.connect(self.db_path)
 
-            query = f"SELECT * FROM index_data WHERE index_name = '{index_name}' ORDER BY date"
-            df = pd.read_sql_query(query, conn)
+            query = "SELECT * FROM index_data WHERE index_name = ? ORDER BY date"
+            df = pd.read_sql_query(query, conn, params=(index_name,))
             conn.close()
 
             # 날짜 인덱스 설정
@@ -86,13 +86,14 @@ class DataLoader:
         delta = df['close'].diff()
         gain = (delta.where(delta > 0, 0)).rolling(window=14).mean()
         loss = (-delta.where(delta < 0, 0)).rolling(window=14).mean()
-        rs = gain / loss
-        df['RSI'] = 100 - (100 / (1 + rs))
+        rs = gain / loss.replace(0, np.nan)
+        df['RSI'] = (100 - (100 / (1 + rs))).fillna(100)
 
         # Stochastic
         low_14 = df['low'].rolling(window=14).min()
         high_14 = df['high'].rolling(window=14).max()
-        df['Stoch_K'] = 100 * (df['close'] - low_14) / (high_14 - low_14)
+        stoch_denom = (high_14 - low_14).replace(0, np.nan)
+        df['Stoch_K'] = (100 * (df['close'] - low_14) / stoch_denom).fillna(50)
         df['Stoch_D'] = df['Stoch_K'].rolling(window=3).mean()
 
         # MACD
@@ -119,14 +120,15 @@ class DataLoader:
         positive_mf = positive_flow.rolling(window=14).sum()
         negative_mf = negative_flow.rolling(window=14).sum()
 
-        mfi_ratio = positive_mf / negative_mf
-        df['MFI'] = 100 - (100 / (1 + mfi_ratio))
+        mfi_ratio = positive_mf / negative_mf.replace(0, np.nan)
+        df['MFI'] = (100 - (100 / (1 + mfi_ratio))).fillna(100)
         
         # CCI (Commodity Channel Index)
         tp = (df['high'] + df['low'] + df['close']) / 3
         sma_tp = tp.rolling(window=20).mean()
         mean_dev = tp.rolling(window=20).apply(lambda x: np.abs(x - x.mean()).mean())
-        df['CCI'] = (tp - sma_tp) / (0.015 * mean_dev)
+        cci_denom = (0.015 * mean_dev).replace(0, np.nan)
+        df['CCI'] = ((tp - sma_tp) / cci_denom).fillna(0)
 
         # ATR (Average True Range)
         high_low = df['high'] - df['low']
@@ -148,10 +150,12 @@ class DataLoader:
 
         # Volume Ratio (거래량 비율)
         df['Volume_MA20'] = df['volume'].rolling(window=20).mean()
-        df['Volume_Ratio'] = df['volume'] / df['Volume_MA20']
+        df['Volume_Ratio'] = (df['volume'] / df['Volume_MA20'].replace(0, np.nan)).fillna(1)
 
         # VWAP (Volume Weighted Average Price) - 20일 기준
-        df['VWAP'] = (df['close'] * df['volume']).rolling(window=20).sum() / df['volume'].rolling(window=20).sum()
+        vol_sum = df['volume'].rolling(window=20).sum().replace(0, np.nan)
+        df['VWAP'] = (df['close'] * df['volume']).rolling(window=20).sum() / vol_sum
+        df['VWAP'] = df['VWAP'].fillna(df['close'])
         df['VWAP_ratio'] = df['close'] / df['VWAP']
 
         return df
@@ -176,10 +180,12 @@ class DataLoader:
         ], axis=1).max(axis=1)
 
         atr = tr.rolling(window=period).mean()
-        plus_di = 100 * (plus_dm.rolling(window=period).mean() / atr)
-        minus_di = 100 * (minus_dm.rolling(window=period).mean() / atr)
+        atr_safe = atr.replace(0, np.nan)
+        plus_di = 100 * (plus_dm.rolling(window=period).mean() / atr_safe)
+        minus_di = 100 * (minus_dm.rolling(window=period).mean() / atr_safe)
 
-        dx = 100 * (plus_di - minus_di).abs() / (plus_di + minus_di)
+        di_sum = (plus_di + minus_di).replace(0, np.nan)
+        dx = 100 * (plus_di - minus_di).abs() / di_sum
         adx = dx.rolling(window=period).mean()
 
         return adx
@@ -202,9 +208,9 @@ class DataLoader:
             (low - close.shift()).abs()
         ], axis=1).max(axis=1)
 
-        atr = tr.rolling(window=period).mean()
-        plus_di = 100 * (plus_dm.rolling(window=period).mean() / atr)
-        minus_di = 100 * (minus_dm.rolling(window=period).mean() / atr)
+        atr_safe = tr.rolling(window=period).mean().replace(0, np.nan)
+        plus_di = 100 * (plus_dm.rolling(window=period).mean() / atr_safe)
+        minus_di = 100 * (minus_dm.rolling(window=period).mean() / atr_safe)
 
         return plus_di, minus_di
 
