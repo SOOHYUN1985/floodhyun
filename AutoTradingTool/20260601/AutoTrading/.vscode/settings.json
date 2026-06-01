@@ -1,0 +1,9 @@
+{
+    "chat.tools.terminal.autoApprove": {
+        "/^nuget locals all -clear$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    },
+    "dotnet.preferCSharpExtension": true
+}
