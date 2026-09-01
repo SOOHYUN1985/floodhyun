@@ -1,0 +1,10 @@
+{
+    "description": "실행 환경 확인용 1개 조합 - 120일 신고가, EMA 50/200 분할매도, 7% 단위 4R 절반 익절",
+    "use_random_strategy": false,
+    "strategies": [
+        [120, [50, 200]]
+    ],
+    "profit_loss_ratios": [
+        [7, 4]
+    ]
+}
